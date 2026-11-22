@@ -10,7 +10,7 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_INPUT = 'false'
-        PATH+HOMEBREW = '/opt/homebrew/bin:/usr/local/bin'
+        PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
     }
 
     stages {
