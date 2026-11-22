@@ -1,0 +1,11 @@
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+
+CREATE TABLE notification_preferences (
+    user_id BIGINT PRIMARY KEY REFERENCES users(id),
+    reminder_7_days BOOLEAN NOT NULL DEFAULT TRUE,
+    reminder_3_days BOOLEAN NOT NULL DEFAULT TRUE,
+    reminder_1_day BOOLEAN NOT NULL DEFAULT TRUE,
+    email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

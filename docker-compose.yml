@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: onesub-postgres
+    environment:
+      POSTGRES_DB: onesub
+      POSTGRES_USER: onesub
+      POSTGRES_PASSWORD: onesub_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - onesub-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onesub -d onesub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  onesub-postgres-data:
