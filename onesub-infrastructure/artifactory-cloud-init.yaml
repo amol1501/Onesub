@@ -1,0 +1,77 @@
+#cloud-config
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose-v2
+
+write_files:
+  - path: /usr/local/sbin/install-artifactory-oss.sh
+    owner: root:root
+    permissions: "0750"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      device=/dev/disk/azure/scsi1/lun0
+      for attempt in $(seq 1 120); do
+        if [ -b "$device" ]; then
+          break
+        fi
+        sleep 5
+      done
+      if [ ! -b "$device" ]; then
+        echo "Artifactory data disk did not appear at $device." >&2
+        exit 1
+      fi
+
+      if ! blkid -s UUID -o value "$device" >/dev/null 2>&1; then
+        mkfs.ext4 -F "$device"
+      fi
+      disk_uuid="$(blkid -s UUID -o value "$device")"
+      if ! grep -q "$disk_uuid" /etc/fstab; then
+        printf 'UUID=%s /mnt/jfrog ext4 defaults,nofail 0 2\n' "$disk_uuid" >> /etc/fstab
+      fi
+      mkdir -p /mnt/jfrog
+      mount /mnt/jfrog
+
+      archive=/tmp/jfrog-artifactory-oss-7.161.26-compose.tar.gz
+      curl --fail --location --silent --show-error --retry 5 \
+        'https://releases.jfrog.io/artifactory/bintray-artifactory/org/artifactory/oss/docker/jfrog-artifactory-oss/7.161.26/jfrog-artifactory-oss-7.161.26-compose.tar.gz' \
+        --output "$archive"
+      printf '%s  %s\n' \
+        '33d0ba4a15239f5c50f56feff13ba8a431856b3429f5f40d59b54a61bcd703fe' \
+        "$archive" | sha256sum --check -
+
+      install -d -m 0755 /opt/jfrog
+      tar -xzf "$archive" -C /opt/jfrog
+      install_dir=/opt/jfrog/artifactory-oss-7.161.26
+      cp "$install_dir/templates/docker-compose.yaml" "$install_dir/docker-compose.yaml"
+      sed -i 's|      - ${JF_ROUTER_ENTRYPOINTS_EXTERNALPORT}:${JF_ROUTER_ENTRYPOINTS_EXTERNALPORT} # for router communication|      - 10.40.2.4:8082:8082|' "$install_dir/docker-compose.yaml"
+      sed -i '/8081:8081/d' "$install_dir/docker-compose.yaml"
+
+      cat > "$install_dir/.env" <<'ENV'
+      DOCKER_REGISTRY=releases-docker.jfrog.io
+      ARTIFACTORY_VERSION=7.161.26
+      ROOT_DATA_DIR=/mnt/jfrog/artifactory
+      JF_ROUTER_ENTRYPOINTS_EXTERNALPORT=8082
+      ENV
+      chmod 0600 "$install_dir/.env"
+
+      install -d -o 1030 -g 1030 -m 0750 /mnt/jfrog/artifactory/var/etc
+      cat > /mnt/jfrog/artifactory/var/etc/system.yaml <<'YAML'
+      shared:
+        node:
+          ip: 10.40.2.4
+          id: onesub-jfrog
+      YAML
+      chown -R 1030:1030 /mnt/jfrog/artifactory/var
+
+      systemctl enable --now docker
+      cd "$install_dir"
+      docker compose --env-file .env config --quiet
+      docker compose --env-file .env up -d
+
+runcmd:
+  - [bash, /usr/local/sbin/install-artifactory-oss.sh]
