@@ -87,16 +87,6 @@ terraform output -raw public_fqdn
 
 The `/` path serves the React app; `/api/v1` reaches Spring Boot. Register a POC account through the app to verify authentication.
 
-## Artifactory OSS evaluation VM
-
-The same Terraform state also provisions a dedicated Ubuntu VM for Artifactory OSS 7.161.26. It uses a 4 GiB `Standard_B2s` VM and a separate 64 GiB Standard SSD data disk. The VM is always on so Jenkins and future VMSS instances can use the repository; compute and disk incur ongoing charges.
-
-The VM downloads the official JFrog Docker Compose package and verifies its SHA-256 checksum during cloud-init. Docker Compose stores Artifactory data on the managed data disk. This evaluation setup uses the bundled Derby database; use a supported external PostgreSQL database and production-sized resources for a production deployment.
-
-Inbound SSH is limited to `admin_cidr`. Artifactory port 8082 is allowed only from the OneSub VNet and is not exposed publicly. After the Jenkins pipeline's **Verify Artifactory VM** stage succeeds, it prints an SSH tunnel command. Run that command from an allowed machine, then open `http://localhost:8082` in a browser. Use the initial `admin` / `password` credentials only for first login and change the password immediately. Create a local Maven repository in Artifactory before configuring Jenkins to publish JARs.
-
-The private address for OneSub VNet workloads is `10.40.2.4:8082`. Do not add a public NSG rule for port 8082. The Artifactory managed disk and all repository data are removed by `terraform destroy`; back up artifacts before destroying the POC.
-
 ## Practice and cleanup
 
 - The VM is configured to shut down and deallocate at 23:30 IST. Start it when needed:

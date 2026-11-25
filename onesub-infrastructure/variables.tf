@@ -37,23 +37,6 @@ variable "vm_size" {
   default     = "Standard_B1ms"
 }
 
-variable "artifactory_vm_size" {
-  description = "JFrog Artifactory OSS evaluation VM size; 4 GiB RAM."
-  type        = string
-  default     = "Standard_B2s"
-}
-
-variable "artifactory_data_disk_size_gb" {
-  description = "Persistent managed disk size for Artifactory binaries and data."
-  type        = number
-  default     = 64
-
-  validation {
-    condition     = var.artifactory_data_disk_size_gb >= 64
-    error_message = "The Artifactory data disk must be at least 64 GiB."
-  }
-}
-
 variable "admin_cidr" {
   description = "Your current public IPv4 address in /32 CIDR form for SSH access."
   type        = string
