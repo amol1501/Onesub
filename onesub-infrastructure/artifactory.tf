@@ -64,17 +64,18 @@ resource "azurerm_network_interface_security_group_association" "artifactory" {
 }
 
 resource "azurerm_linux_virtual_machine" "artifactory" {
-  name                            = "${var.name_prefix}-jfrog"
-  computer_name                   = "onesub-jfrog"
-  location                        = azurerm_resource_group.onesub.location
-  resource_group_name             = azurerm_resource_group.onesub.name
-  size                            = var.artifactory_vm_size
-  admin_username                  = "onesubadmin"
-  disable_password_authentication = true
-  network_interface_ids           = [azurerm_network_interface.artifactory.id]
-  custom_data                     = base64encode(file("${path.module}/artifactory-cloud-init.yaml"))
-  patch_mode                      = "AutomaticByPlatform"
-  provision_vm_agent              = true
+  name                              = "${var.name_prefix}-jfrog"
+  computer_name                     = "onesub-jfrog"
+  location                          = azurerm_resource_group.onesub.location
+  resource_group_name               = azurerm_resource_group.onesub.name
+  size                              = var.artifactory_vm_size
+  admin_username                    = "onesubadmin"
+  disable_password_authentication   = true
+  network_interface_ids             = [azurerm_network_interface.artifactory.id]
+  custom_data                       = base64encode(file("${path.module}/artifactory-cloud-init.yaml"))
+  patch_mode                        = "AutomaticByPlatform"
+  provision_vm_agent                = true
+  vm_agent_platform_updates_enabled = true
 
   admin_ssh_key {
     username   = "onesubadmin"
