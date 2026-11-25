@@ -96,17 +96,18 @@ resource "azurerm_network_interface_security_group_association" "onesub" {
 }
 
 resource "azurerm_linux_virtual_machine" "onesub" {
-  name                            = "${var.name_prefix}-vm"
-  computer_name                   = "onesub-poc"
-  location                        = azurerm_resource_group.onesub.location
-  resource_group_name             = azurerm_resource_group.onesub.name
-  size                            = var.vm_size
-  admin_username                  = "onesubadmin"
-  disable_password_authentication = true
-  network_interface_ids           = [azurerm_network_interface.onesub.id]
-  custom_data                     = base64encode(file("${path.module}/cloud-init.yaml"))
-  patch_mode                      = "AutomaticByPlatform"
-  provision_vm_agent              = true
+  name                              = "${var.name_prefix}-vm"
+  computer_name                     = "onesub-poc"
+  location                          = azurerm_resource_group.onesub.location
+  resource_group_name               = azurerm_resource_group.onesub.name
+  size                              = var.vm_size
+  admin_username                    = "onesubadmin"
+  disable_password_authentication   = true
+  network_interface_ids             = [azurerm_network_interface.onesub.id]
+  custom_data                       = base64encode(file("${path.module}/cloud-init.yaml"))
+  patch_mode                        = "AutomaticByPlatform"
+  provision_vm_agent                = true
+  vm_agent_platform_updates_enabled = true
 
   admin_ssh_key {
     username   = "onesubadmin"
