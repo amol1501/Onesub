@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.onesub</groupId>
 	<artifactId>onesub-backend</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>${revision}</version>
 	<name>OneSub</name>
 	<description/>
 	<url/>
@@ -28,7 +28,30 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<revision>0.0.1-SNAPSHOT</revision>
 	</properties>
+	<repositories>
+		<repository>
+			<id>onesub</id>
+			<url>https://pkgs.dev.azure.com/mastropayment/Onesub/_packaging/onesub/maven/v1</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+	<distributionManagement>
+		<repository>
+			<id>onesub</id>
+			<url>https://pkgs.dev.azure.com/mastropayment/Onesub/_packaging/onesub/maven/v1</url>
+		</repository>
+		<snapshotRepository>
+			<id>onesub</id>
+			<url>https://pkgs.dev.azure.com/mastropayment/Onesub/_packaging/onesub/maven/v1</url>
+		</snapshotRepository>
+	</distributionManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -77,6 +100,31 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>${flyway.version}</version>
+				<configuration>
+					<url>${env.ONESUB_FLYWAY_URL}</url>
+					<user>${env.ONESUB_DB_USERNAME}</user>
+					<password>${env.ONESUB_DB_PASSWORD}</password>
+					<locations>
+						<location>filesystem:${project.basedir}/src/main/resources/db/migration</location>
+					</locations>
+				</configuration>
+				<dependencies>
+					<dependency>
+						<groupId>org.flywaydb</groupId>
+						<artifactId>flyway-database-postgresql</artifactId>
+						<version>${flyway.version}</version>
+					</dependency>
+					<dependency>
+						<groupId>org.postgresql</groupId>
+						<artifactId>postgresql</artifactId>
+						<version>${postgresql.version}</version>
+					</dependency>
+				</dependencies>
 			</plugin>
 		</plugins>
 	</build>

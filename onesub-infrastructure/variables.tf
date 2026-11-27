@@ -69,3 +69,95 @@ variable "auto_shutdown_time" {
     error_message = "auto_shutdown_time must use 24-hour HHmm format, for example 2330."
   }
 }
+
+variable "frontend_vm_size" {
+  description = "VM size for the frontend scale set."
+  type        = string
+  default     = "Standard_B1s"
+}
+
+variable "backend_vm_size" {
+  description = "VM size for the Spring Boot backend scale set."
+  type        = string
+  default     = "Standard_B1ms"
+}
+
+variable "domain_name" {
+  description = "Apex domain registered at GoDaddy and served by the frontend."
+  type        = string
+  default     = "onesub.in"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$", var.domain_name))
+    error_message = "domain_name must be a valid fully-qualified domain name."
+  }
+}
+
+variable "postgres_admin_username" {
+  description = "Administrator login for the new PostgreSQL Flexible Server."
+  type        = string
+  default     = "onesubadmin"
+}
+
+variable "postgres_admin_password" {
+  description = "Administrator password supplied from Jenkins credentials."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "postgres_sku_name" {
+  description = "Burstable PostgreSQL Flexible Server SKU."
+  type        = string
+  default     = "B_Standard_B1ms"
+}
+
+variable "postgres_storage_mb" {
+  description = "PostgreSQL storage allocation in MiB."
+  type        = number
+  default     = 32768
+
+  validation {
+    condition     = var.postgres_storage_mb >= 32768
+    error_message = "PostgreSQL Flexible Server requires at least 32768 MiB of storage."
+  }
+}
+
+variable "business_hours_start_hour" {
+  description = "Scale the application VMSS instances up at this India Standard Time hour."
+  type        = number
+  default     = 8
+
+  validation {
+    condition     = var.business_hours_start_hour >= 0 && var.business_hours_start_hour <= 23
+    error_message = "business_hours_start_hour must be between 0 and 23."
+  }
+}
+
+variable "business_hours_stop_hour" {
+  description = "Scale the application VMSS instances down at this India Standard Time hour."
+  type        = number
+  default     = 23
+
+  validation {
+    condition     = var.business_hours_stop_hour >= 0 && var.business_hours_stop_hour <= 23
+    error_message = "business_hours_stop_hour must be between 0 and 23."
+  }
+}
+
+variable "business_hours_stop_minute" {
+  description = "Minute past the stop hour when the application VMSS instances scale to zero."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.business_hours_stop_minute >= 0 && var.business_hours_stop_minute <= 59
+    error_message = "business_hours_stop_minute must be between 0 and 59."
+  }
+}
+
+variable "enable_three_tier" {
+  description = "Create the separate frontend/backend VMSS and managed PostgreSQL deployment."
+  type        = bool
+  default     = false
+}

@@ -9,6 +9,9 @@ OneSub is a manual multi-merchant subscription tracking application. It does not
 - `onesub-infrastructure/` - Azure and Nginx deployment configuration
 - `docs/` - Architecture, database, API, security, and deployment documentation
 
+For the staged Azure frontend/backend VMSS and PostgreSQL rollout, see
+[docs/three-tier-deployment.md](docs/three-tier-deployment.md).
+
 ## Local Development
 
 1. Start PostgreSQL:

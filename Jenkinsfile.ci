@@ -1,0 +1,49 @@
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+        timeout(time: 45, unit: 'MINUTES')
+    }
+
+    environment {
+        JAVA_HOME = '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home'
+        PATH = '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build, test and publish backend') {
+            steps {
+                script {
+                    env.ONESUB_ARTIFACT_VERSION = "1.0.${env.BUILD_NUMBER}"
+                }
+                withCredentials([
+                    string(
+                        credentialsId: 'onesub-azure-artifacts-publish-pat',
+                        variable: 'AZURE_ARTIFACTS_PAT'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+                        set +x
+                        java -version
+                        settings_file="$(mktemp "${TMPDIR:-/tmp}/onesub-maven-settings.XXXXXX")"
+                        trap 'rm -f "$settings_file"' EXIT
+                        python3 onesub-backend/scripts/create-azure-artifacts-settings.py "$settings_file"
+                        cd onesub-backend
+                        ./mvnw -B -s "$settings_file" clean deploy \
+                            -Drevision="$ONESUB_ARTIFACT_VERSION"
+                    '''
+                }
+                echo "Published com.onesub:onesub-backend:${env.ONESUB_ARTIFACT_VERSION}"
+            }
+        }
+    }
+}

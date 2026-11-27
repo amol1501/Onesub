@@ -1,0 +1,80 @@
+#cloud-config
+package_update: true
+packages:
+  - openjdk-21-jre-headless
+  - python3
+
+write_files:
+  - path: /etc/onesub/node.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      ONESUB_ROLE=backend
+      ONESUB_STORAGE_ACCOUNT=${storage_account_name}
+      ONESUB_STORAGE_CONTAINER=${storage_container}
+      ONESUB_KEY_VAULT=${backend_vault_name}
+      ONESUB_POSTGRES_FQDN=${postgres_fqdn}
+  - path: /usr/local/bin/onesub-refresh.py
+    owner: root:root
+    permissions: "0750"
+    encoding: b64
+    content: ${refresh_script_b64}
+  - path: /etc/systemd/system/onesub-backend.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=OneSub Spring Boot backend
+      Wants=network-online.target
+      After=network-online.target
+      ConditionPathExists=/etc/onesub/backend.env
+
+      [Service]
+      Type=simple
+      User=onesub
+      Group=onesub
+      EnvironmentFile=/etc/onesub/backend.env
+      ExecStart=/usr/bin/java -jar /opt/onesub/current/onesub-backend.jar
+      Restart=on-failure
+      RestartSec=10
+      TimeoutStopSec=30
+      NoNewPrivileges=true
+      PrivateTmp=true
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/onesub-refresh.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Refresh OneSub backend release and database settings
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/etc/onesub/node.env
+      ExecStart=/usr/bin/python3 /usr/local/bin/onesub-refresh.py
+  - path: /etc/systemd/system/onesub-refresh.timer
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Retry OneSub backend refresh
+
+      [Timer]
+      OnBootSec=45s
+      OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - [useradd, --system, --home-dir, /var/lib/onesub, --shell, /usr/sbin/nologin, onesub]
+  - [install, -d, -o, root, -g, root, -m, "0755", /opt/onesub/releases]
+  - [install, -d, -o, onesub, -g, onesub, -m, "0750", /var/lib/onesub]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, onesub-backend.service]
+  - [systemctl, enable, --now, onesub-refresh.timer]

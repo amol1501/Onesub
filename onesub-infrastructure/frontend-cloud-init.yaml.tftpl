@@ -1,0 +1,55 @@
+#cloud-config
+package_update: true
+packages:
+  - nginx
+  - openssl
+  - python3
+
+write_files:
+  - path: /etc/onesub/node.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      ONESUB_ROLE=frontend
+      ONESUB_DOMAIN=${domain_name}
+      ONESUB_STORAGE_ACCOUNT=${storage_account_name}
+      ONESUB_STORAGE_CONTAINER=${storage_container}
+      ONESUB_KEY_VAULT=${frontend_vault_name}
+      ONESUB_BACKEND_IP=${backend_private_ip}
+  - path: /usr/local/bin/onesub-refresh.py
+    owner: root:root
+    permissions: "0750"
+    encoding: b64
+    content: ${refresh_script_b64}
+  - path: /etc/systemd/system/onesub-refresh.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Refresh OneSub frontend release and TLS certificate
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/etc/onesub/node.env
+      ExecStart=/usr/bin/python3 /usr/local/bin/onesub-refresh.py
+  - path: /etc/systemd/system/onesub-refresh.timer
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Retry OneSub frontend refresh
+
+      [Timer]
+      OnBootSec=45s
+      OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, nginx]
+  - [systemctl, enable, --now, onesub-refresh.timer]
