@@ -4,19 +4,14 @@ pipeline {
     options {
         disableConcurrentBuilds()
         skipDefaultCheckout(true)
-        timeout(time: 60, unit: 'MINUTES')
+        timeout(time: 180, unit: 'MINUTES')
     }
 
     parameters {
-        choice(
-            name: 'DEPLOY_TARGET',
-            choices: ['poc', 'three-tier'],
-            description: 'Deploy the existing POC or the new frontend/backend VMSS and PostgreSQL stack.'
-        )
         string(
             name: 'ONESUB_ARTIFACT_VERSION',
             defaultValue: '',
-            description: 'For three-tier, enter the version published by the OneSub CI job.'
+            description: 'Enter the version published by the OneSub CI job.'
         )
     }
 
@@ -35,9 +30,6 @@ pipeline {
         }
 
         stage('Validate three-tier artifact version') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 script {
                     def artifactVersion = (params.ONESUB_ARTIFACT_VERSION ?: '').trim()
@@ -53,9 +45,6 @@ pipeline {
         }
 
         stage('Download backend artifact from Azure Artifacts') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 withCredentials([
                     string(
@@ -83,9 +72,6 @@ pipeline {
         }
 
         stage('Build and test frontend') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 sh '''
                     set -eu
@@ -105,7 +91,6 @@ pipeline {
                     set -eu
                     command -v terraform
                     command -v az
-                    command -v ssh
                     command -v tar
                     command -v curl
                 '''
@@ -119,41 +104,23 @@ pipeline {
 
         stage('Plan Azure changes') {
             steps {
-                script {
-                    def threeTierAlreadyExists = sh(
-                        script: "terraform -chdir=onesub-infrastructure state list | grep -Fq 'module.three_tier[0].'",
-                        returnStatus: true
-                    ) == 0
-                    env.ONESUB_ENABLE_THREE_TIER =
-                        params.DEPLOY_TARGET == 'three-tier' || threeTierAlreadyExists ? 'true' : 'false'
-
-                    def planCredentials = [
-                        string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
-                        string(credentialsId: 'onesub-azure-client-secret', variable: 'ARM_CLIENT_SECRET'),
-                        string(credentialsId: 'onesub-azure-tenant-id', variable: 'ARM_TENANT_ID'),
-                        string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID'),
-                        string(credentialsId: 'onesub-admin-cidr', variable: 'TF_VAR_admin_cidr'),
-                        string(credentialsId: 'onesub-ssh-public-key', variable: 'TF_VAR_ssh_public_key')
-                    ]
-                    if (env.ONESUB_ENABLE_THREE_TIER == 'true') {
-                        planCredentials.add(
-                            string(credentialsId: 'onesub-postgres-admin-password', variable: 'ONESUB_POSTGRES_ADMIN_PASSWORD')
-                        )
-                    }
-
-                    withCredentials(planCredentials) {
-                        dir('onesub-infrastructure') {
-                            sh '''
-                                set -eu
-                                set +x
-                                export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
-                                export TF_VAR_enable_three_tier="$ONESUB_ENABLE_THREE_TIER"
-                                if [ "$ONESUB_ENABLE_THREE_TIER" = "true" ]; then
-                                    export TF_VAR_postgres_admin_password="$ONESUB_POSTGRES_ADMIN_PASSWORD"
-                                fi
-                                terraform plan -input=false -out=tfplan
-                            '''
-                        }
+                withCredentials([
+                    string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
+                    string(credentialsId: 'onesub-azure-client-secret', variable: 'ARM_CLIENT_SECRET'),
+                    string(credentialsId: 'onesub-azure-tenant-id', variable: 'ARM_TENANT_ID'),
+                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID'),
+                    string(credentialsId: 'onesub-admin-cidr', variable: 'TF_VAR_admin_cidr'),
+                    string(credentialsId: 'onesub-ssh-public-key', variable: 'TF_VAR_ssh_public_key'),
+                    string(credentialsId: 'onesub-postgres-admin-password', variable: 'ONESUB_POSTGRES_ADMIN_PASSWORD')
+                ]) {
+                    dir('onesub-infrastructure') {
+                        sh '''
+                            set -eu
+                            set +x
+                            export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
+                            export TF_VAR_postgres_admin_password="$ONESUB_POSTGRES_ADMIN_PASSWORD"
+                            terraform plan -input=false -out=tfplan
+                        '''
                     }
                 }
             }
@@ -171,9 +138,7 @@ pipeline {
                     string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
                     string(credentialsId: 'onesub-azure-client-secret', variable: 'ARM_CLIENT_SECRET'),
                     string(credentialsId: 'onesub-azure-tenant-id', variable: 'ARM_TENANT_ID'),
-                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID'),
-                    string(credentialsId: 'onesub-admin-cidr', variable: 'TF_VAR_admin_cidr'),
-                    string(credentialsId: 'onesub-ssh-public-key', variable: 'TF_VAR_ssh_public_key')
+                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID')
                 ]) {
                     dir('onesub-infrastructure') {
                         sh '''
@@ -187,84 +152,7 @@ pipeline {
             }
         }
 
-        stage('Deploy and verify') {
-            when {
-                expression { params.DEPLOY_TARGET == 'poc' }
-            }
-            steps {
-                script {
-                    env.ONESUB_VM_PUBLIC_IP = sh(
-                        script: 'terraform -chdir=onesub-infrastructure output -raw public_ip_address',
-                        returnStdout: true
-                    ).trim()
-                    env.ONESUB_VM_PUBLIC_FQDN = sh(
-                        script: 'terraform -chdir=onesub-infrastructure output -raw public_fqdn',
-                        returnStdout: true
-                    ).trim()
-                    env.ONESUB_RESOURCE_GROUP = sh(
-                        script: 'terraform -chdir=onesub-infrastructure output -raw resource_group_name',
-                        returnStdout: true
-                    ).trim()
-                    env.ONESUB_VM_NAME = sh(
-                        script: 'terraform -chdir=onesub-infrastructure output -raw virtual_machine_name',
-                        returnStdout: true
-                    ).trim()
-                }
-                withCredentials([
-                    string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
-                    string(credentialsId: 'onesub-azure-client-secret', variable: 'ARM_CLIENT_SECRET'),
-                    string(credentialsId: 'onesub-azure-tenant-id', variable: 'ARM_TENANT_ID'),
-                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID')
-                ]) {
-                    sh '''
-                        set -eu
-                        set +x
-                        az login --service-principal \
-                            --username "$ARM_CLIENT_ID" \
-                            --password "$ARM_CLIENT_SECRET" \
-                            --tenant "$ARM_TENANT_ID" \
-                            --output none
-                        az account set --subscription "$ARM_SUBSCRIPTION_ID"
-                        az vm start \
-                            --resource-group "$ONESUB_RESOURCE_GROUP" \
-                            --name "$ONESUB_VM_NAME" \
-                            --only-show-errors
-                    '''
-                }
-                sshagent(credentials: ['onesub-vm-ssh']) {
-                    sh '''
-                        set -eu
-                        mkdir -p "$HOME/.ssh"
-                        chmod 700 "$HOME/.ssh"
-                        attempt=0
-                        ready=0
-                        while [ "$attempt" -lt 36 ]; do
-                            if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-                                "onesubadmin@$ONESUB_VM_PUBLIC_IP" \
-                                'sudo cloud-init status --wait >/dev/null && sudo docker compose version >/dev/null'
-                            then
-                                ready=1
-                                break
-                            fi
-                            attempt=$((attempt + 1))
-                            sleep 10
-                        done
-                        if [ "$ready" -ne 1 ]; then
-                            echo "VM did not become ready for deployment within six minutes." >&2
-                            exit 1
-                        fi
-                        bash onesub-infrastructure/deploy.sh "$ONESUB_VM_PUBLIC_IP" "$ONESUB_VM_PUBLIC_FQDN"
-                        curl --fail --show-error --retry 12 --retry-delay 10 --retry-all-errors \
-                            "https://$ONESUB_VM_PUBLIC_FQDN/api/v1/auth/csrf"
-                    '''
-                }
-            }
-        }
-
         stage('Read three-tier deployment outputs') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 script {
                     env.ONESUB_RESOURCE_GROUP = sh(
@@ -315,9 +203,6 @@ pipeline {
         }
 
         stage('Publish runtime database secrets') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 withCredentials([
                     string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
@@ -342,9 +227,6 @@ pipeline {
         }
 
         stage('Run Flyway migrations') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 withCredentials([
                     string(credentialsId: 'onesub-postgres-admin-password', variable: 'ONESUB_DB_PASSWORD'),
@@ -375,18 +257,17 @@ pipeline {
             }
         }
 
-        stage('Provision TLS certificate') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
+        stage('Manual DNS and TLS setup') {
             steps {
+                input(
+                    message: "Set the GoDaddy A record for ${env.ONESUB_DOMAIN} to ${env.ONESUB_FRONTEND_IP}. Complete the manual DNS-01 certificate flow and upload onesub-tls-bundle to Key Vault ${env.ONESUB_FRONTEND_KEY_VAULT}, then continue.",
+                    ok: 'TLS uploaded'
+                )
                 withCredentials([
                     string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
                     string(credentialsId: 'onesub-azure-client-secret', variable: 'ARM_CLIENT_SECRET'),
                     string(credentialsId: 'onesub-azure-tenant-id', variable: 'ARM_TENANT_ID'),
-                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID'),
-                    string(credentialsId: 'onesub-godaddy-api-key', variable: 'GODADDY_API_KEY'),
-                    string(credentialsId: 'onesub-godaddy-api-secret', variable: 'GODADDY_API_SECRET')
+                    string(credentialsId: 'onesub-azure-subscription-id', variable: 'ARM_SUBSCRIPTION_ID')
                 ]) {
                     sh '''
                         set -eu
@@ -397,18 +278,22 @@ pipeline {
                             --tenant "$ARM_TENANT_ID" \
                             --output none
                         az account set --subscription "$ARM_SUBSCRIPTION_ID"
-                        export ONESUB_DOMAIN="$ONESUB_DOMAIN"
-                        export ONESUB_FRONTEND_KEY_VAULT="$ONESUB_FRONTEND_KEY_VAULT"
-                        bash onesub-infrastructure/scripts/prepare-tls-secrets.sh
+                        secret_file="$(mktemp "${TMPDIR:-/tmp}/onesub-tls-secret.XXXXXX")"
+                        trap 'rm -f "$secret_file"' EXIT
+                        az keyvault secret show \
+                            --vault-name "$ONESUB_FRONTEND_KEY_VAULT" \
+                            --name onesub-tls-bundle \
+                            --query value \
+                            --only-show-errors \
+                            --output tsv > "$secret_file"
+                        python3 onesub-infrastructure/scripts/validate-manual-tls-bundle.py \
+                            "$secret_file" "$ONESUB_DOMAIN"
                     '''
                 }
             }
         }
 
         stage('Publish application artifacts') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 withCredentials([
                     string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),
@@ -436,9 +321,6 @@ pipeline {
         }
 
         stage('Deploy and verify three-tier') {
-            when {
-                expression { params.DEPLOY_TARGET == 'three-tier' }
-            }
             steps {
                 withCredentials([
                     string(credentialsId: 'onesub-azure-client-id', variable: 'ARM_CLIENT_ID'),

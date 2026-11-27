@@ -11,6 +11,8 @@ OneSub is a manual multi-merchant subscription tracking application. It does not
 
 For the staged Azure frontend/backend VMSS and PostgreSQL rollout, see
 [docs/three-tier-deployment.md](docs/three-tier-deployment.md).
+The production deployment runs directly on VMSS and does not require Docker;
+Compose is retained only for local PostgreSQL development.
 
 ## Local Development
 

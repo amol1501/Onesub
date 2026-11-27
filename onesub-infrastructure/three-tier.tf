@@ -1,5 +1,9 @@
+moved {
+  from = module.three_tier[0]
+  to   = module.three_tier
+}
+
 module "three_tier" {
-  count  = var.enable_three_tier ? 1 : 0
   source = "./modules/three-tier"
 
   resource_group_name        = azurerm_resource_group.onesub.name

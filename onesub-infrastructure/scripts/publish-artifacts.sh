@@ -42,9 +42,6 @@ upload_blob \
 upload_blob \
     "releases/backend/$ONESUB_RELEASE/onesub-backend.jar" \
     "$ONESUB_BACKEND_JAR"
-upload_blob \
-    "tools/lego-linux-amd64" \
-    "$WORKSPACE/lego-linux-amd64"
 
 manifest="$temporary_directory/onesub-current.json"
 printf '{"release":"%s","frontend":"releases/frontend/%s.tar.gz","backend":"releases/backend/%s/onesub-backend.jar"}\n' \

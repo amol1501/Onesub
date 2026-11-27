@@ -9,13 +9,13 @@ variable "subscription_id" {
 }
 
 variable "location" {
-  description = "Azure region for the POC resources."
+  description = "Azure region for OneSub resources."
   type        = string
   default     = "centralindia"
 }
 
 variable "resource_group_name" {
-  description = "Dedicated resource group so POC resources can be managed and budgeted together."
+  description = "Shared resource group for the OneSub three-tier deployment."
   type        = string
   default     = "onesub-poc-rg"
 }
@@ -31,14 +31,8 @@ variable "name_prefix" {
   }
 }
 
-variable "vm_size" {
-  description = "Small, 2 GiB burstable VM; deallocate when not practicing."
-  type        = string
-  default     = "Standard_B1ms"
-}
-
 variable "admin_cidr" {
-  description = "Your current public IPv4 address in /32 CIDR form for SSH access."
+  description = "Current public IPv4 address in /32 CIDR form for administration allowlists."
   type        = string
 
   validation {
@@ -57,17 +51,6 @@ variable "ssh_public_key" {
   description = "SSH public key supplied by automation. When unset, ssh_public_key_path is used."
   type        = string
   default     = null
-}
-
-variable "auto_shutdown_time" {
-  description = "Daily VM deallocation time in 24-hour HHmm India Standard Time."
-  type        = string
-  default     = "2330"
-
-  validation {
-    condition     = can(regex("^([01][0-9]|2[0-3])[0-5][0-9]$", var.auto_shutdown_time))
-    error_message = "auto_shutdown_time must use 24-hour HHmm format, for example 2330."
-  }
 }
 
 variable "frontend_vm_size" {
@@ -154,10 +137,4 @@ variable "business_hours_stop_minute" {
     condition     = var.business_hours_stop_minute >= 0 && var.business_hours_stop_minute <= 59
     error_message = "business_hours_stop_minute must be between 0 and 59."
   }
-}
-
-variable "enable_three_tier" {
-  description = "Create the separate frontend/backend VMSS and managed PostgreSQL deployment."
-  type        = bool
-  default     = false
 }

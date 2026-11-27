@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.error
@@ -46,25 +47,6 @@ def get_secret(vault_name, secret_name):
     return json.loads(read_url(url, token))["value"]
 
 
-def put_secret(vault_name, secret_name, value):
-    token = access_token("https://vault.azure.net")
-    url = (
-        f"https://{vault_name}.vault.azure.net/secrets/"
-        f"{urllib.parse.quote(secret_name, safe='')}?api-version={KEY_VAULT_API_VERSION}"
-    )
-    request = urllib.request.Request(
-        url,
-        data=json.dumps({"value": value}).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        method="PUT",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        response.read()
-
-
 def get_blob(account_name, container_name, blob_name):
     token = access_token("https://storage.azure.com/")
     encoded_blob = urllib.parse.quote(blob_name, safe="/")
@@ -89,68 +71,54 @@ def certificate_expires_within(fullchain, seconds):
     return result.returncode != 0
 
 
-def ensure_tls_bundle(vault_name, domain, account_name, container_name):
-    try:
-        bundle = json.loads(get_secret(vault_name, "onesub-tls-bundle"))
-    except urllib.error.HTTPError as error:
-        if error.code != 404:
-            raise
-        bundle = {}
+def certificate_matches_domain(fullchain, domain):
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".pem") as certificate_file:
+        certificate_file.write(fullchain)
+        certificate_file.flush()
+        result = subprocess.run(
+            [
+                "openssl",
+                "x509",
+                "-in",
+                certificate_file.name,
+                "-noout",
+                "-checkhost",
+                domain,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    return result.returncode == 0
 
+
+def ensure_tls_bundle(vault_name, domain):
+    try:
+        raw_bundle = get_secret(vault_name, "onesub-tls-bundle")
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise RuntimeError(
+                "Key Vault secret onesub-tls-bundle is missing; upload the manual TLS bundle."
+            ) from error
+        raise
+    bundle = json.loads(raw_bundle)
+    if not isinstance(bundle, dict):
+        raise ValueError("Key Vault secret onesub-tls-bundle must be a JSON object")
     fullchain = bundle.get("fullchain", "")
     private_key = bundle.get("privateKey", "")
-    needs_renewal = (
-        "-----BEGIN CERTIFICATE-----" not in fullchain
-        or "-----BEGIN" not in private_key
-        or certificate_expires_within(fullchain, 30 * 24 * 60 * 60)
-    )
-    if not needs_renewal:
-        return bundle
-
-    godaddy_key = get_secret(vault_name, "godaddy-api-key")
-    godaddy_secret = get_secret(vault_name, "godaddy-api-secret")
-    lego_binary = Path("/usr/local/bin/lego")
-    lego_binary.write_bytes(get_blob(account_name, container_name, "tools/lego-linux-amd64"))
-    lego_binary.chmod(0o755)
-    acme_path = Path("/var/lib/onesub/acme")
-    acme_path.mkdir(parents=True, exist_ok=True)
-    acme_path.chmod(0o700)
-
-    lego_environment = os.environ.copy()
-    lego_environment["GODADDY_API_KEY"] = godaddy_key
-    lego_environment["GODADDY_API_SECRET"] = godaddy_secret
-    local_certificate = acme_path / "certificates" / f"{domain}.crt"
-    lego_command = "renew" if local_certificate.is_file() else "run"
-    lego_arguments = [
-        str(lego_binary),
-        "--path",
-        str(acme_path),
-        "--dns",
-        "godaddy",
-        "--domains",
-        domain,
-        "--accept-tos",
-        lego_command,
-    ]
-    if lego_command == "renew":
-        lego_arguments.extend(["--days", "30"])
-    subprocess.run(
-        lego_arguments,
-        env=lego_environment,
-        check=True,
-    )
-
-    certificate_dir = acme_path / "certificates"
-    certificate = certificate_dir / f"{domain}.crt"
-    issuer = certificate_dir / f"{domain}.issuer.crt"
-    private_key_file = certificate_dir / f"{domain}.key"
-    if not certificate.is_file() or not issuer.is_file() or not private_key_file.is_file():
-        raise FileNotFoundError("lego did not produce the expected PEM certificate files")
-    bundle = {
-        "fullchain": certificate.read_text(encoding="utf-8") + issuer.read_text(encoding="utf-8"),
-        "privateKey": private_key_file.read_text(encoding="utf-8"),
-    }
-    put_secret(vault_name, "onesub-tls-bundle", json.dumps(bundle))
+    if not isinstance(fullchain, str) or "-----BEGIN CERTIFICATE-----" not in fullchain:
+        raise ValueError("Key Vault TLS full chain is not PEM encoded")
+    if not isinstance(private_key, str) or "PRIVATE KEY-----" not in private_key:
+        raise ValueError("Key Vault TLS private key is not PEM encoded")
+    if not certificate_matches_domain(fullchain, domain):
+        raise ValueError(f"Key Vault TLS certificate does not cover {domain}")
+    if certificate_expires_within(fullchain, 0):
+        raise ValueError("Key Vault TLS certificate is expired; renew it manually.")
+    if certificate_expires_within(fullchain, 30 * 24 * 60 * 60):
+        print(
+            "Warning: TLS certificate expires within 30 days; renew it manually and upload the new bundle.",
+            file=sys.stderr,
+        )
     return bundle
 
 
@@ -279,8 +247,6 @@ def deploy_frontend(manifest, release):
     bundle = ensure_tls_bundle(
         vault_name,
         os.environ["ONESUB_DOMAIN"],
-        os.environ["ONESUB_STORAGE_ACCOUNT"],
-        os.environ["ONESUB_STORAGE_CONTAINER"],
     )
     fullchain = bundle["fullchain"]
     private_key = bundle["privateKey"]

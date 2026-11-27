@@ -1,9 +1,0 @@
-.git
-.DS_Store
-.env
-.env.*
-**/node_modules
-**/target
-**/dist
-**/.terraform
-**/*.tfstate*

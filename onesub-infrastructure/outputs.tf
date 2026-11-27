@@ -1,79 +1,59 @@
-output "public_ip_address" {
-  description = "Public IPv4 address of the POC VM."
-  value       = azurerm_public_ip.onesub.ip_address
-}
-
-output "public_fqdn" {
-  description = "DNS name used by Caddy to obtain and renew an HTTPS certificate."
-  value       = azurerm_public_ip.onesub.fqdn
-}
-
 output "resource_group_name" {
-  description = "Resource group containing the POC VM."
+  description = "Resource group containing the OneSub three-tier deployment."
   value       = azurerm_resource_group.onesub.name
-}
-
-output "virtual_machine_name" {
-  description = "POC VM name used by Azure CLI."
-  value       = azurerm_linux_virtual_machine.onesub.name
-}
-
-output "ssh_command" {
-  description = "SSH command for connecting from the allowed admin IP."
-  value       = "ssh onesubadmin@${azurerm_public_ip.onesub.ip_address}"
 }
 
 output "frontend_public_ip" {
   description = "Static frontend load-balancer IP to use for the GoDaddy apex A record."
-  value       = var.enable_three_tier ? module.three_tier[0].frontend_public_ip : null
+  value       = module.three_tier.frontend_public_ip
 }
 
 output "backend_internal_load_balancer_ip" {
   description = "Private address used by the frontend to proxy API requests to the backend."
-  value       = var.enable_three_tier ? module.three_tier[0].backend_internal_load_balancer_ip : null
+  value       = module.three_tier.backend_internal_load_balancer_ip
 }
 
 output "postgres_fqdn" {
-  description = "Hostname of the new PostgreSQL Flexible Server."
-  value       = var.enable_three_tier ? module.three_tier[0].postgres_fqdn : null
+  description = "Hostname of the PostgreSQL Flexible Server."
+  value       = module.three_tier.postgres_fqdn
 }
 
 output "postgres_database_name" {
-  description = "Database created for the new OneSub deployment."
-  value       = var.enable_three_tier ? module.three_tier[0].postgres_database_name : null
+  description = "Database created for OneSub."
+  value       = module.three_tier.postgres_database_name
 }
 
 output "artifact_storage_account_name" {
   description = "Private Blob Storage account used for versioned application artifacts."
-  value       = var.enable_three_tier ? module.three_tier[0].artifact_storage_account_name : null
+  value       = module.three_tier.artifact_storage_account_name
 }
 
 output "frontend_key_vault_name" {
-  description = "Key Vault for frontend DNS challenge and TLS secrets."
-  value       = var.enable_three_tier ? module.three_tier[0].frontend_key_vault_name : null
+  description = "Key Vault for the manually managed frontend TLS bundle."
+  value       = module.three_tier.frontend_key_vault_name
 }
 
 output "backend_key_vault_name" {
   description = "Key Vault for backend database credentials."
-  value       = var.enable_three_tier ? module.three_tier[0].backend_key_vault_name : null
+  value       = module.three_tier.backend_key_vault_name
 }
 
 output "domain_name" {
-  description = "Apex domain configured for the frontend."
-  value       = var.enable_three_tier ? module.three_tier[0].domain_name : null
+  description = "Domain configured for the frontend."
+  value       = module.three_tier.domain_name
 }
 
 output "postgres_admin_username" {
   description = "PostgreSQL administrator username used by the migration stage."
-  value       = var.enable_three_tier ? module.three_tier[0].postgres_admin_username : null
+  value       = module.three_tier.postgres_admin_username
 }
 
 output "frontend_vmss_name" {
   description = "Name of the frontend virtual machine scale set."
-  value       = var.enable_three_tier ? module.three_tier[0].frontend_vmss_name : null
+  value       = module.three_tier.frontend_vmss_name
 }
 
 output "backend_vmss_name" {
   description = "Name of the backend virtual machine scale set."
-  value       = var.enable_three_tier ? module.three_tier[0].backend_vmss_name : null
+  value       = module.three_tier.backend_vmss_name
 }

@@ -1,118 +1,136 @@
 # Azure three-tier deployment
 
-The existing single-VM POC remains available. The Jenkins parameter defaults to
-`poc`; select `three-tier` to create the new frontend VMSS, backend VMSS, and
-PostgreSQL Flexible Server using the existing Terraform state.
-
-## Architecture
+This repository deploys OneSub as a three-tier application:
 
 - The frontend VMSS serves the React build with Nginx and terminates HTTPS.
 - The backend VMSS runs the Spring Boot executable JAR directly under Java 21
   and systemd; the JAR includes embedded Tomcat.
-- A private Standard Load Balancer endpoint connects Nginx to the backend.
-  The backend rule uses source-IP affinity for the current session-based auth.
-- PostgreSQL Flexible Server is a fresh database. Its firewall allows the
-  Jenkins egress `/32` and the backend load-balancer public IP only.
-- The Jenkins CI job publishes the backend JAR as a versioned Maven package to
-  the private Azure Artifacts feed. The CD job downloads the selected version
-  and copies it to private Blob Storage because the VMSS managed identities
-  read runtime artifacts from Blob. The frontend bundle and Lego binary remain
-  in Blob Storage.
-- Flyway runs from Jenkins after infrastructure creation and before publishing
-  the release pointer. Production VMSS instances have startup migrations
-  disabled; the existing POC keeps its current startup-migration behavior.
+- A private Standard Load Balancer connects Nginx to the backend.
+- PostgreSQL Flexible Server stores application data.
+- CI publishes a versioned backend Maven package to Azure Artifacts. CD
+  downloads that package, builds the frontend, runs Flyway, and copies release
+  artifacts to private Blob Storage for the VMSS managed identities.
 
-The VMSS instances are scheduled to run daily from 08:00 to 23:30 India
-Standard Time, and scale to zero overnight. The website is unavailable during
-that time. PostgreSQL, the load balancer, and the static public IP remain
-allocated overnight.
+Docker is not used by the production deployment. The root
+`docker-compose.yml` remains only for local PostgreSQL development.
+
+VMSS instances are scheduled to run from 08:00 to 23:30 India Standard Time
+and scale to zero overnight. PostgreSQL, the load balancer, public IP, storage,
+and Key Vault remain allocated overnight.
 
 ## Jenkins setup
 
-The Jenkins agent must have Homebrew OpenJDK 21 at
-`/opt/homebrew/opt/openjdk@21`, Node.js/npm, Python 3, Terraform, and Azure CLI
-available. The JDK runs Maven tests, publishing and Flyway; Node.js builds the
-frontend.
+The Jenkins agent needs Homebrew OpenJDK 21 at
+`/opt/homebrew/opt/openjdk@21`, Node.js/npm, Python 3, Terraform, Azure CLI,
+`tar`, and `curl`. No Docker daemon or SSH client is needed for deployment.
 
-Keep the existing Azure and SSH credentials. Add these Jenkins **Secret text**
-credentials:
+Configure these credentials, available to the deployment job:
 
-- `onesub-azure-artifacts-publish-pat` — Azure Artifacts Packaging Read & Write.
-- `onesub-azure-artifacts-read-pat` — Azure Artifacts Packaging Read.
-- `onesub-postgres-admin-password` — use a strong password of at least 16
+- Existing Azure service-principal credentials:
+  `onesub-azure-client-id`, `onesub-azure-client-secret`,
+  `onesub-azure-tenant-id`, `onesub-azure-subscription-id`.
+- `onesub-admin-cidr` — current Jenkins egress IPv4 address with `/32`; this
+  controls the PostgreSQL, Key Vault, and artifact-storage allowlists.
+- `onesub-ssh-public-key` — public key installed on the VMSS instances.
+- `onesub-azure-artifacts-publish-pat` — Packaging Read & Write.
+- `onesub-azure-artifacts-read-pat` — Packaging Read.
+- `onesub-postgres-admin-password` — a strong password of at least 16
   characters.
-- `onesub-godaddy-api-key`
-- `onesub-godaddy-api-secret`
+
+GoDaddy API credentials are not used. DNS records and certificate issuance
+and renewal are performed manually.
 
 Create two Jenkins Pipeline jobs from the same repository:
 
-1. **CI:** set the script path to `Jenkinsfile.ci` and configure SCM polling or
-   a webhook. It runs `mvn clean deploy`, including backend tests, and publishes
-   `com.onesub:onesub-backend` to Azure Artifacts. The CI console prints the
-   immutable version as `1.0.<CI-build-number>`.
-2. **CD:** keep the existing deployment job on `Jenkinsfile`. Select
-   `three-tier` and enter the exact artifact version printed by CI in
-   `ONESUB_ARTIFACT_VERSION`. CD downloads that JAR before planning Azure
-   changes, then requires the existing manual approval before applying. It
-   runs Flyway and copies the selected JAR to Blob for VMSS deployment.
+1. **CI:** script path `Jenkinsfile.ci`. It runs backend tests and
+   `mvn clean deploy`, publishing `com.onesub:onesub-backend` with version
+   `1.0.<CI-build-number>`.
+2. **CD:** script path `Jenkinsfile`. Enter the exact version printed by CI
+   in `ONESUB_ARTIFACT_VERSION`. CD downloads that package, runs frontend
+   tests/build, plans Azure changes, and waits for manual approval before
+   applying.
 
-Run CD from the same source revision used for the CI build so the frontend and
-the selected backend JAR stay compatible.
+Use the same source revision for CI and CD so the frontend and backend
+versions remain compatible.
 
-The Azure Artifacts feed is
+The feed URL is
 `https://pkgs.dev.azure.com/mastropayment/Onesub/_packaging/onesub/maven/v1`.
-If it does not exist yet, create a Maven feed named `onesub` in the
-`mastropayment` organization and `Onesub` project. Grant the publish PAT owner
-feed Contributor access and the read PAT owner feed Reader access. The POM uses
-the Maven server id `onesub`. Jenkins creates a temporary `settings.xml` from
-the PAT credentials and removes it after each Maven operation; no PAT belongs
-in the repository. For local Maven use, add a server with id `onesub`, username
-`mastropayment`, and your PAT as the password in
-`${user.home}/.m2/settings.xml`. Keep that file private and do not commit it.
+If needed, create a Maven feed named `onesub` in the `mastropayment`
+organization and `Onesub` project. Grant the publish PAT Contributor and the
+read PAT Reader access. The Maven server id is `onesub`; Jenkins generates a
+temporary `settings.xml` and removes it after Maven runs. Never commit a PAT.
 
-The GoDaddy API credentials are stored in the frontend Key Vault for
-certificate renewal. Use an API key intended for DNS automation; do not use
-the GoDaddy account password.
+The Terraform service principal needs resource-management permissions and
+`User Access Administrator` (or `Owner`) at the resource-group scope so it can
+create managed-identity role assignments.
 
-The Terraform service principal must be able to create Azure role assignments
-for managed identities. It needs resource-management permissions plus
-`User Access Administrator` (or `Owner`) at the resource-group scope. The
-`onesub-admin-cidr` Jenkins credential must contain the current Jenkins
-egress IPv4 address as a `/32`; this controls the PostgreSQL, Key Vault, and
-artifact-storage allowlists.
+## Manual GoDaddy DNS and TLS
 
-Review the CD plan and use the manual approval gate. Run deployment during the
-scheduled hours; outside those hours the VMSS instances are scaled to zero and
-the final instance deployment check cannot complete.
+After Terraform creates the frontend public IP and Key Vault, the CD pipeline
+pauses at **Manual DNS and TLS setup**. Use the displayed domain, IP, and Key
+Vault name to complete these steps:
 
-## GoDaddy DNS
+1. In GoDaddy, create a DNS-only apex `A` record:
 
-After the first successful infrastructure apply, read the
-`frontend_public_ip` Terraform output and create an apex `A` record in GoDaddy:
+   | Type | Name | Value |
+   | --- | --- | --- |
+   | A | `@` | The `frontend_public_ip` Terraform output |
 
-| Type | Name | Value |
-| --- | --- | --- |
-| A | `@` | The `frontend_public_ip` value |
+   Remove conflicting apex `A` records. Nginx is configured for the apex
+   domain only; `www` is not served by this deployment.
+2. Use an ACME client in manual DNS-01 mode for the configured domain. Add the
+   exact `_acme-challenge` TXT value requested by the client in GoDaddy, wait
+   for DNS propagation, and complete issuance. Keep the certificate full
+   chain and matching private key private.
+3. Log in to Azure with an identity allowed to set secrets in the frontend
+   Key Vault, then upload and validate the bundle from the repository root:
 
-Use DNS-only records (no proxy) and remove any conflicting apex `A` records.
-The deployment uses a Let's Encrypt DNS-01 challenge, so certificate issuance
-does not depend on DNS propagation. The frontend VMSS stores the certificate in
-Key Vault and renews it before expiry.
+   ```sh
+   az login
+   az account set --subscription "<subscription-uuid>"
+   bash onesub-infrastructure/scripts/upload-manual-tls-bundle.sh \
+     "<frontend-key-vault-name>" "<configured-domain>" \
+     "/path/to/fullchain.pem" "/path/to/privkey.pem"
+   ```
 
-## Budget and state cautions
+   The helper validates the domain, expiry, PEM format, and certificate/key
+   match, then stores a JSON value under the Key Vault secret
+   `onesub-tls-bundle`. Do not paste certificate material into Jenkins
+   parameters, logs, or chat.
+4. Resume the Jenkins input. CD validates the Key Vault bundle before
+   publishing artifacts and deploying the VMSS instances.
 
-The VMSS schedule reduces compute time, but it does not stop PostgreSQL or
-remove load-balancer, IP, storage, and Key Vault charges. Azure budgets send
-alerts; they do not enforce a hard spending ceiling. Treat `$75/month` as a
-target, not a guaranteed maximum, and review the Azure estimate and approved
-Terraform plan before applying.
+The frontend refresh service reads the bundle from Key Vault and reloads Nginx
+when it changes. Certificates are not renewed automatically: renew well before
+expiry, repeat the manual DNS-01 TXT challenge, and upload the new files with
+the helper. The refresh service warns when the installed certificate is
+within 30 days of expiry and fails if it is expired.
 
-The PostgreSQL administrator password is a sensitive Terraform input, but
-Terraform still records it in state. The existing Jenkins workspace state must
-remain access-restricted; do not copy it into source control or expose plan
-files. A future production rollout should migrate the existing state (not
-create a second state) to an encrypted, access-controlled Azure Storage backend.
+## Legacy POC transition
 
-The backend is intentionally kept at one instance initially. Do not increase
-its scale until session state is shared or the selected affinity behavior has
-been load-tested.
+The existing Jenkins Terraform state tracks the single-VM POC. The POC VM,
+NIC, public IP, NSG, subnet, and shutdown schedule are removed from the
+configuration; the resource group and VNet remain because the three-tier
+module uses them. The next Terraform plan will include deletion of those POC
+resources alongside three-tier provisioning. Inspect every destroy action
+before approving; this repository change does not itself apply or destroy
+Azure resources.
+
+Terraform state is local to the persistent Jenkins workspace. Keep using the
+existing deployment job and workspace; do not enable workspace cleanup or run
+the same state from another agent. A future production rollout should migrate
+the existing state to an encrypted, access-controlled Azure Storage backend.
+
+## Budget and operations
+
+The VMSS schedule reduces compute time but does not stop PostgreSQL, the load
+balancer, public IP, storage, or Key Vault charges. Azure budgets send alerts;
+they do not enforce a hard spending ceiling. Treat `$75/month` as a target,
+not a guaranteed maximum, and review the Azure estimate and approved plan.
+
+Terraform records the PostgreSQL administrator password in state. Keep the
+Jenkins workspace and state access-restricted; never copy state or plan files
+into source control.
+
+Keep the backend at one instance initially. Do not scale it out until session
+state is shared or the selected affinity behavior has been load-tested.

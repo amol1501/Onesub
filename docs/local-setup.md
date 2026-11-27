@@ -5,7 +5,7 @@
 - Java 21
 - Maven 3.9+
 - Node.js 20+
-- Docker with Docker Compose
+- Docker with Docker Compose (only for the local PostgreSQL service)
 
 ## Database
 
